@@ -1,0 +1,5 @@
+{
+  "name": "TiKV Sharding Animation",
+  "description": "An interactive animation demonstrating TiKV's range-based auto-sharding mechanism, including region splitting and merging.",
+  "requestFramePermissions": []
+}
