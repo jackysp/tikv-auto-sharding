@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { Region, WriteEffect } from '../types';
-import { TOTAL_KEY_SPACE, REGION_COLORS, WRITE_SIZE_INCREASE, WRITE_SIZE_DECREASE, NODES } from '../constants';
+import { REGION_COLORS, WRITE_SIZE_INCREASE, WRITE_SIZE_DECREASE, NODES } from '../constants';
+import { MIN_KEY, MAX_KEY, getMidpointKey, formatKey } from '../utils/keyUtils';
 
 interface UseTiKVAnimationProps {
   maxRegionSize: number;
@@ -11,8 +12,8 @@ interface UseTiKVAnimationProps {
 const getInitialRegions = (): Region[] => [
   {
     id: 1,
-    startKey: 0,
-    endKey: TOTAL_KEY_SPACE,
+    startKey: MIN_KEY,
+    endKey: MAX_KEY,
     size: 0,
     color: REGION_COLORS[0],
     nodeId: 1, // Assign to the first node
@@ -25,7 +26,6 @@ export const useTiKVAnimation = ({ maxRegionSize, mergeThreshold, autoMerge }: U
   const [writeEffect, setWriteEffect] = useState<WriteEffect | null>(null);
 
   const nextRegionId = useRef(2);
-  // Fix: Provide an initial value to `useRef` to resolve "Expected 1 arguments, but got 0" error.
   const prevAutoMergeRef = useRef<boolean | undefined>(undefined);
 
   const addLog = useCallback((message: string) => {
@@ -33,16 +33,14 @@ export const useTiKVAnimation = ({ maxRegionSize, mergeThreshold, autoMerge }: U
   }, []);
 
   const splitRegion = useCallback((regionToSplit: Region) => {
-    const splitKey = Math.floor((regionToSplit.startKey + regionToSplit.endKey) / 2);
+    const splitKey = getMidpointKey(regionToSplit.startKey, regionToSplit.endKey);
 
     setRegions(prevRegions => {
-      // Find the least loaded node to move one of the new regions to
       const nodeLoads = NODES.map(node => ({
         nodeId: node.id,
         count: prevRegions.filter(r => r.nodeId === node.id).length,
       }));
 
-      // Prefer moving to a different node
       const otherNodes = nodeLoads.filter(n => n.nodeId !== regionToSplit.nodeId);
       const leastLoadedNode = otherNodes.length > 0 
         ? otherNodes.reduce((a, b) => (a.count <= b.count ? a : b))
@@ -54,7 +52,7 @@ export const useTiKVAnimation = ({ maxRegionSize, mergeThreshold, autoMerge }: U
         size: Math.floor(regionToSplit.size / 2),
         id: nextRegionId.current++,
         color: REGION_COLORS[nextRegionId.current % REGION_COLORS.length],
-        nodeId: regionToSplit.nodeId, // First new region stays on the original node
+        nodeId: regionToSplit.nodeId,
       };
       
       const newRegion2: Region = {
@@ -63,7 +61,7 @@ export const useTiKVAnimation = ({ maxRegionSize, mergeThreshold, autoMerge }: U
         size: Math.ceil(regionToSplit.size / 2),
         id: nextRegionId.current++,
         color: REGION_COLORS[nextRegionId.current % REGION_COLORS.length],
-        nodeId: leastLoadedNode.nodeId, // Second new region moves to the least loaded node
+        nodeId: leastLoadedNode.nodeId,
       };
 
       const index = prevRegions.findIndex(r => r.id === regionToSplit.id);
@@ -72,7 +70,7 @@ export const useTiKVAnimation = ({ maxRegionSize, mergeThreshold, autoMerge }: U
       const newRegions = [...prevRegions];
       newRegions.splice(index, 1, newRegion1, newRegion2);
       
-      addLog(`Region ${regionToSplit.id} split at key ${splitKey} into Region ${newRegion1.id} (TiKV ${newRegion1.nodeId}) and ${newRegion2.id} (TiKV ${newRegion2.nodeId}).`);
+      addLog(`Region ${regionToSplit.id} split at key ${formatKey(splitKey)} into Region ${newRegion1.id} (TiKV ${newRegion1.nodeId}) and ${newRegion2.id} (TiKV ${newRegion2.nodeId}).`);
       if (newRegion1.nodeId !== newRegion2.nodeId) {
         addLog(`Region ${newRegion2.id} moved to TiKV ${newRegion2.nodeId} for load balancing.`);
       }
@@ -82,21 +80,22 @@ export const useTiKVAnimation = ({ maxRegionSize, mergeThreshold, autoMerge }: U
   }, [addLog]);
 
 
-  const addWrite = useCallback((key: number) => {
+  const addWrite = useCallback((key: string) => {
     let targetRegion: Region | undefined;
     let targetIndex = -1;
 
     setRegions(prevRegions => {
       const newRegions = [...prevRegions];
+      // String comparison works for lexicographically sorted keys
       targetIndex = newRegions.findIndex(r => key >= r.startKey && key < r.endKey);
       
       if (targetIndex !== -1) {
         targetRegion = { ...newRegions[targetIndex] };
         targetRegion.size += WRITE_SIZE_INCREASE;
         newRegions[targetIndex] = targetRegion;
-        addLog(`Write to key ${key} in Region ${targetRegion.id} on TiKV ${targetRegion.nodeId}. New size: ${targetRegion.size}.`);
+        addLog(`Write to key ${formatKey(key)} in Region ${targetRegion.id} on TiKV ${targetRegion.nodeId}. New size: ${targetRegion.size}.`);
       } else {
-        addLog(`Write to key ${key} failed. No region found.`);
+        addLog(`Write to key ${formatKey(key)} failed. No region found.`);
       }
       return newRegions;
     });
@@ -105,11 +104,11 @@ export const useTiKVAnimation = ({ maxRegionSize, mergeThreshold, autoMerge }: U
         if (targetRegion && targetRegion.size > maxRegionSize) {
             splitRegion(targetRegion);
         }
-    }, 100); // Delay split to allow UI to update
+    }, 100);
     
   }, [addLog, maxRegionSize, splitRegion]);
 
-  const addDelete = useCallback((key: number) => {
+  const addDelete = useCallback((key: string) => {
     setRegions(prevRegions => {
         const newRegions = [...prevRegions];
         const targetIndex = newRegions.findIndex(r => key >= r.startKey && key < r.endKey);
@@ -118,9 +117,9 @@ export const useTiKVAnimation = ({ maxRegionSize, mergeThreshold, autoMerge }: U
             const targetRegion = { ...newRegions[targetIndex] };
             targetRegion.size = Math.max(0, targetRegion.size - WRITE_SIZE_DECREASE);
             newRegions[targetIndex] = targetRegion;
-            addLog(`Delete from key ${key} in Region ${targetRegion.id} on TiKV ${targetRegion.nodeId}. New size: ${targetRegion.size}.`);
+            addLog(`Delete from key ${formatKey(key)} in Region ${targetRegion.id} on TiKV ${targetRegion.nodeId}. New size: ${targetRegion.size}.`);
         } else {
-            addLog(`Delete from key ${key} failed. No region found.`);
+            addLog(`Delete from key ${formatKey(key)} failed. No region found.`);
         }
         return newRegions;
     });
@@ -137,15 +136,15 @@ export const useTiKVAnimation = ({ maxRegionSize, mergeThreshold, autoMerge }: U
             return currentRegions;
         }
 
-        let newRegions = [...currentRegions];
+        let newRegions = [...currentRegions].sort((a,b) => a.startKey.localeCompare(b.startKey));
         
         for (let i = 0; i < newRegions.length - 1; i++) {
             const region1 = newRegions[i];
             const region2 = newRegions[i+1];
 
-            // Check if both adjacent regions are below the merge threshold
+            if (region1.endKey !== region2.startKey) continue;
+
             if (region1.size < mergeThreshold && region2.size < mergeThreshold) {
-                // Case 1: Regions are on the same node -> MERGE
                 if (region1.nodeId === region2.nodeId) {
                     const mergedRegion: Region = {
                         id: nextRegionId.current++,
@@ -158,15 +157,14 @@ export const useTiKVAnimation = ({ maxRegionSize, mergeThreshold, autoMerge }: U
                     addLog(`Merging Region ${region1.id} and ${region2.id} on TiKV ${region1.nodeId} into new Region ${mergedRegion.id}.`);
                     newRegions.splice(i, 2, mergedRegion);
                     regionsChanged = true;
-                    break; // A merge happened, restart scan
+                    break;
                 } 
-                // Case 2: Regions are on different nodes -> SCHEDULE (move region2 to region1's node)
                 else {
                     addLog(`Scheduling: Moving Region ${region2.id} from TiKV ${region2.nodeId} to TiKV ${region1.nodeId} to prepare for merge with Region ${region1.id}.`);
                     const movedRegion2 = { ...region2, nodeId: region1.nodeId };
                     newRegions.splice(i + 1, 1, movedRegion2);
                     regionsChanged = true;
-                    break; // A move happened, restart scan
+                    break;
                 }
             }
         }
@@ -188,7 +186,7 @@ export const useTiKVAnimation = ({ maxRegionSize, mergeThreshold, autoMerge }: U
     if (autoMerge) {
       const intervalId = setInterval(() => {
         triggerMergeScan();
-      }, 5000); // Scan every 5 seconds
+      }, 5000);
       return () => clearInterval(intervalId);
     }
   }, [autoMerge, triggerMergeScan, addLog]);

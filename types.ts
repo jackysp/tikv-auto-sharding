@@ -5,8 +5,8 @@ export interface Node {
 
 export interface Region {
   id: number;
-  startKey: number;
-  endKey: number;
+  startKey: string;
+  endKey: string;
   size: number;
   color: string;
   nodeId: number;
@@ -15,6 +15,6 @@ export interface Region {
 export type WriteType = 'random' | 'hotspot' | 'delete';
 
 export interface WriteEffect {
-  key: number;
+  key: string;
   type: WriteType;
 }

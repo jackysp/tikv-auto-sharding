@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import type { Region, WriteEffect, Node, WriteType } from '../types';
-import { TOTAL_KEY_SPACE } from '../constants';
+import { getKeyAsPercentage, formatKey, MIN_KEY, MAX_KEY } from '../utils/keyUtils';
 
 interface RegionBlockProps {
   region: Region;
@@ -10,8 +10,9 @@ interface RegionBlockProps {
 const RegionBlock: React.FC<RegionBlockProps> = ({ region, isHotspot }) => {
   const [showTooltip, setShowTooltip] = useState(false);
 
-  const width = ((region.endKey - region.startKey) / TOTAL_KEY_SPACE) * 100;
-  const left = (region.startKey / TOTAL_KEY_SPACE) * 100;
+  const left = getKeyAsPercentage(region.startKey);
+  const end = getKeyAsPercentage(region.endKey);
+  const width = end - left;
 
   return (
     <div
@@ -33,7 +34,7 @@ const RegionBlock: React.FC<RegionBlockProps> = ({ region, isHotspot }) => {
         <div className="absolute bottom-full mb-2 w-max max-w-xs p-2 text-xs text-white bg-gray-800 border border-gray-600 rounded-md shadow-lg z-10 left-1/2 -translate-x-1/2">
           <p><span className="font-bold text-teal-400">Region ID:</span> {region.id}</p>
           <p><span className="font-bold text-teal-400">TiKV ID:</span> {region.nodeId}</p>
-          <p><span className="font-bold text-teal-400">Keys:</span> [{region.startKey}, {region.endKey})</p>
+          <p><span className="font-bold text-teal-400">Keys:</span> [{formatKey(region.startKey)}, {formatKey(region.endKey)})</p>
           <p><span className="font-bold text-teal-400">Size:</span> {region.size}</p>
         </div>
       )}
@@ -46,7 +47,7 @@ interface WritePingProps {
 }
 
 const WritePing: React.FC<WritePingProps> = ({ writeEffect }) => {
-    const left = (writeEffect.key / TOTAL_KEY_SPACE) * 100;
+    const left = getKeyAsPercentage(writeEffect.key);
     
     const getPingColor = (type: WriteType) => {
         switch (type) {
@@ -84,8 +85,8 @@ export const KeySpaceVisualizer: React.FC<KeySpaceVisualizerProps> = ({ regions,
   return (
     <div className="w-full">
       <div className="flex justify-between font-mono text-xs text-gray-400 mb-2 pl-[5.5rem]">
-        <span>Start Key: 0</span>
-        <span>End Key: {TOTAL_KEY_SPACE}</span>
+        <span>Start Key: {formatKey(MIN_KEY)}</span>
+        <span>End Key: {formatKey(MAX_KEY)}</span>
       </div>
        <div className="flex flex-col gap-2">
         {nodes.map((node) => {

@@ -1,6 +1,5 @@
 import type { Node } from './types';
 
-export const TOTAL_KEY_SPACE = 1024;
 export const INITIAL_MAX_REGION_SIZE = 100;
 export const INITIAL_MERGE_THRESHOLD = 40;
 export const WRITE_SIZE_INCREASE = 10;

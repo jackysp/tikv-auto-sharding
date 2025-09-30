@@ -3,12 +3,13 @@ import { useTiKVAnimation } from './hooks/useTiKVAnimation';
 import { KeySpaceVisualizer } from './components/KeySpaceVisualizer';
 import { ControlPanel } from './components/ControlPanel';
 import { InfoPanel } from './components/InfoPanel';
-import { TOTAL_KEY_SPACE, INITIAL_MAX_REGION_SIZE, INITIAL_MERGE_THRESHOLD, NODES } from './constants';
+import { INITIAL_MAX_REGION_SIZE, INITIAL_MERGE_THRESHOLD, NODES } from './constants';
+import { getRandomKey, getMidpointKey } from './utils/keyUtils';
 
 export default function App() {
   const [maxRegionSize, setMaxRegionSize] = useState<number>(INITIAL_MAX_REGION_SIZE);
   const [mergeThreshold, setMergeThreshold] = useState<number>(INITIAL_MERGE_THRESHOLD);
-  const [hotspotKey, setHotspotKey] = useState<number | null>(null);
+  const [hotspotKey, setHotspotKey] = useState<string | null>(null);
   const [autoMerge, setAutoMerge] = useState<boolean>(true);
 
   const {
@@ -22,7 +23,7 @@ export default function App() {
   } = useTiKVAnimation({ maxRegionSize, mergeThreshold, autoMerge });
 
   const handleAddWrite = useCallback(() => {
-    const key = Math.floor(Math.random() * TOTAL_KEY_SPACE);
+    const key = getRandomKey();
     setHotspotKey(null);
     setWriteEffect({ key, type: 'random' });
     addWrite(key);
@@ -31,12 +32,9 @@ export default function App() {
   const handleAddHotspotWrite = useCallback(() => {
     let currentHotspotKey = hotspotKey;
     if (currentHotspotKey === null || !regions.some(r => currentHotspotKey >= r.startKey && currentHotspotKey < r.endKey)) {
-      // Pick a random region to be the hotspot
       const targetRegionIndex = Math.floor(Math.random() * regions.length);
       const targetRegion = regions[targetRegionIndex];
-      currentHotspotKey = Math.floor(
-        targetRegion.startKey + (targetRegion.endKey - targetRegion.startKey) / 2
-      );
+      currentHotspotKey = getMidpointKey(targetRegion.startKey, targetRegion.endKey);
       setHotspotKey(currentHotspotKey);
     }
     setWriteEffect({ key: currentHotspotKey, type: 'hotspot' });
@@ -44,7 +42,7 @@ export default function App() {
   }, [hotspotKey, addWrite, regions, setWriteEffect]);
 
   const handleAddDelete = useCallback(() => {
-    const key = Math.floor(Math.random() * TOTAL_KEY_SPACE);
+    const key = getRandomKey();
     setHotspotKey(null);
     setWriteEffect({ key, type: 'delete' });
     addDelete(key);
@@ -60,7 +58,7 @@ export default function App() {
       <header className="text-center mb-6">
         <h1 className="text-4xl md:text-5xl font-bold text-teal-400">TiKV Auto-Sharding Visualizer</h1>
         <p className="text-gray-400 mt-2 max-w-2xl mx-auto">
-          An interactive animation of TiKV's range-based region splitting, merging, and load balancing across nodes.
+          An interactive animation of TiKV's range-based sharding in a 64-bit hexadecimal key space.
         </p>
       </header>
       
